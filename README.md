@@ -23,3 +23,5 @@ You can also edit the game source code if you like!
 2. Скопируйте содержимое каталога `data` в `FreeOberon/data`.
 3. Запустите Free Oberon, нажмите F3 и наберите `Karax.Mod`. Должен открыться файл.
 4. Для компиляции и запуска игры нажмите F9.
+
+Редактируйте исходник на здоровье!

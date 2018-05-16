@@ -7,13 +7,13 @@ it under the terms of the GNU General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 
-Free Oberon is distributed in the hope that it will be useful,
+Karax is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
+along with Karax.  If not, see <http://www.gnu.org/licenses/>.
 *)
 MODULE Karax;
 IMPORT Out, G := Graph;
@@ -54,7 +54,7 @@ BEGIN
   (* Основа *)
   FOR y := 0 TO H - 1 DO
     FOR x := 0 TO W - 1 DO
-      map[y, x].type := 1;
+      map[y, x].type := 1
     END
   END;
   (* Вода *)
@@ -179,7 +179,7 @@ BEGIN
   x := (e.x - mapX) DIV cellW;
   y := (e.y - mapY) DIV cellH;
   IF (x >= 0) & (x < W) & (y >= 0) & (y < H) THEN
-    IF IsDraggable(x, y) THEN
+    IF (e.button = 0) & IsDraggable(x, y) THEN
       drag.on := TRUE;
       drag.unitX := x;
       drag.unitY := y;
