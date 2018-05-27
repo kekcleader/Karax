@@ -23,10 +23,15 @@ CONST
   tilesPerLine = 4;
   firstUnit = 8;
 
+  (* Типы анимации *)
+  tShowUp* = 0; (* Показ единицы врага перед атакой *)
+  tMove*   = 1; (* Перемещение единицы при атаке *)
+
 TYPE
   Cell = RECORD
     type: INTEGER; (* Тип клетки *)
-    team: INTEGER  (* За кого играет эта единица: 0/1 *)
+    team: INTEGER; (* За кого играет эта единица: 0/1 *)
+    visible: BOOLEAN (* Показан ли игроку тип единицы *)
   END;
 
 VAR
@@ -45,6 +50,13 @@ VAR
     innerX, innerY: INTEGER; (* За какое место клетки схватилась мышь *)
     x, y: INTEGER; (* Где находится перетаскиваемое на экране *)
     x1, y1, x2, y2: INTEGER (* Разрешённая область перетаскивания *)
+  END;
+  
+  anim: RECORD
+    on: BOOLEAN; (* Происходит ли сейчас анимация *)
+    type: INTEGER; (* Тип анимации. См. константы выше *)
+    t: INTEGER; (* Отсчёт времени *)
+    x1, y1, x2, y2: INTEGER (* Начало и конец движения *)
   END;
 
 PROCEDURE GenerateMap;
@@ -66,11 +78,13 @@ BEGIN
   FOR x := 0 TO W - 1 DO
     FOR y := 0 TO 2 DO
       map[y, x].type := G.Random(2) + 8;
-      map[y, x].team := 1
+      map[y, x].team := 1;
+      map[y, x].visible := FALSE
     END;
     FOR y := H - 3 TO H - 1 DO
       map[y, x].type := G.Random(2) + 8;
-      map[y, x].team := 0
+      map[y, x].team := 0;
+      map[y, x].visible := TRUE
     END
   END
 END GenerateMap;
@@ -82,21 +96,24 @@ BEGIN
   mapY := (s.h - cellH * H) DIV 2
 END Init;
 
-(* Рисует клетку карты (x; y) на экране в точке (dx, dy) *)
-PROCEDURE DrawCell(x, y, dx, dy: INTEGER);
+(* Рисует клетку карты (x; y) на экране в точке (dx, dy)
+   со значением альфа-канала, равным alpha *)
+PROCEDURE DrawCell(x, y, dx, dy, alpha: INTEGER);
 VAR
   t: INTEGER; (* Тип клетки *)
   sx, sy: INTEGER; (* Смещение рисунка клетки в tiles *)
   clr: INTEGER;
 BEGIN
   t := map[y, x].type;
+  IF (t >= firstUnit) & ~map[y, x].visible THEN t := 0 END;
   sx := t MOD tilesPerLine * cellW;
   sy := t DIV tilesPerLine * cellH;
   IF t >= firstUnit THEN
     (* Подложка клетки (только для единиц) *)
-    G.Blit(tiles, s, 0, 0, cellW, cellH, dx, dy);
+    G.Blit(tiles, s, 0, 0, cellW, cellH, dx, dy)
   END;
   (* Изображение единицы *)
+  G.SetAlpha(tiles, alpha);
   G.Blit(tiles, s, sx, sy, cellW, cellH, dx, dy);
   (* Цвет команды *)
   IF t >= firstUnit THEN
@@ -114,7 +131,7 @@ BEGIN
     FOR x := 0 TO W - 1 DO
       dx := mapX + x * cellW;
       dy := mapY + y * cellH;
-      DrawCell(x, y, dx, dy)
+      DrawCell(x, y, dx, dy, 255)
     END
   END
 END DrawMap;
@@ -122,20 +139,77 @@ END DrawMap;
 PROCEDURE DrawDrag;
 VAR dx, dy: INTEGER;
 BEGIN
-  (* Перекрытие оригинальной клетки *)
-  dx := mapX + drag.unitX * cellW;
-  dy := mapY + drag.unitY * cellH;
-  G.Blit(tiles, s, cellW, 0, cellW, cellH, dx, dy);
-  (* Перетаскиваемая (плавающая) клетка *)
-  dx := drag.x - drag.innerX;
-  dy := drag.y - drag.innerY;
-  DrawCell(drag.unitX, drag.unitY, dx, dy)
+  G.Rect(s, (drag.x - mapX) DIV cellW * cellW + mapX,
+    (drag.y - mapY) DIV cellH * cellH + mapY,
+    (drag.x - mapX) DIV cellW * cellW + mapX + cellW - 1,
+    (drag.y - mapY) DIV cellH * cellH + mapY + cellH - 1,
+    G.MakeCol(255, 0, 0));
+  (* Ограничитель хода *)
+  G.Rect(s, drag.x1, drag.y1, drag.x2 - 1, drag.y2 - 1,
+    G.MakeCol(255, 0, 0))
 END DrawDrag;
+
+(* Действие в конце анимации перемещения *)
+PROCEDURE AnimMoveEnd;
+BEGIN
+  IF anim.type = tMove THEN
+    map[anim.y2, anim.x2] := map[anim.y1, anim.x1];
+    map[anim.y1, anim.x1].type := 1
+  END
+END AnimMoveEnd;
+
+PROCEDURE AnimShowUp;
+CONST frameCount = 800;
+VAR t: INTEGER;
+BEGIN
+  t := G.GetTicks() - anim.t;
+  IF t > frameCount THEN t := frameCount END;
+  DrawCell(anim.x2, anim.y2,
+    mapX + anim.x2 * cellW, mapY + anim.y2 * cellH,
+    t * 255 DIV frameCount);
+  IF t = frameCount THEN
+    anim.type := tMove;
+    anim.t := G.GetTicks()
+  END
+END AnimShowUp;
+
+PROCEDURE AnimMove;
+CONST animFrames = 400;
+VAR sx, sy, dx, dy, x, y, t: INTEGER;
+BEGIN
+  t := G.GetTicks() - anim.t;
+  IF t > animFrames THEN t := animFrames END;
+  (* Перекрытие оригинальной клетки *)
+  sx := mapX + anim.x1 * cellW;
+  sy := mapY + anim.y1 * cellH;
+  G.Blit(tiles, s, cellW, 0, cellW, cellH, sx, sy);
+  (* Перемещающаяся (плавающая) клетка *)
+  dx := mapX + anim.x2 * cellW;
+  dy := mapY + anim.y2 * cellH;
+  x := sx + (dx - sx) * t DIV animFrames;
+  y := sy + (dy - sy) * t DIV animFrames;
+  DrawCell(anim.x1, anim.y1, x, y, 255);
+  IF t = animFrames THEN
+    anim.on := FALSE;
+    G.ShowMouse(TRUE);
+    AnimMoveEnd
+  END
+END AnimMove;
+
+PROCEDURE DrawAnim;
+BEGIN
+  CASE anim.type OF
+    tShowUp: AnimShowUp
+  | tMove: AnimMove
+  ELSE
+  END
+END DrawAnim;
 
 PROCEDURE Act;
 BEGIN
   G.ClearScreen;
   DrawMap;
+  IF anim.on THEN DrawAnim END;
   IF drag.on THEN DrawDrag END;
   IF needFlip THEN G.Flip END
 END Act;
@@ -147,13 +221,24 @@ END IsDraggable;
 
 PROCEDURE IsDroppable(x, y: INTEGER): BOOLEAN;
 BEGIN
-  RETURN map[y, x].type = 1
+  RETURN (map[y, x].type = 1) OR
+    (map[y, x].type >= firstUnit) & (map[y, x].team # 0)
 END IsDroppable;
 
 PROCEDURE Drop(x, y: INTEGER);
 BEGIN
-  map[y, x].type := map[drag.unitY, drag.unitX].type;
-  map[drag.unitY, drag.unitX].type := 1
+  anim.on := TRUE;
+  IF (map[y, x].type >= firstUnit) & ~map[y, x].visible THEN
+    map[y, x].visible := TRUE;
+    G.ShowMouse(FALSE);
+    anim.type := tShowUp
+  ELSE anim.type := tMove
+  END;
+  anim.t := G.GetTicks();
+  anim.x1 := drag.unitX;
+  anim.y1 := drag.unitY;
+  anim.x2 := x;
+  anim.y2 := y
 END Drop;
 
 PROCEDURE WrapXY(VAR x, y: INTEGER; x1, y1, x2, y2: INTEGER);
@@ -174,21 +259,22 @@ BEGIN
 END DragMove;
 
 PROCEDURE OnMouseDown(VAR e: G.Event);
-VAR x, y: INTEGER;
+VAR x, y, r: INTEGER;
 BEGIN
   x := (e.x - mapX) DIV cellW;
   y := (e.y - mapY) DIV cellH;
   IF (x >= 0) & (x < W) & (y >= 0) & (y < H) THEN
-    IF (e.button = 0) & IsDraggable(x, y) THEN
+    IF (e.button = 0) & ~anim.on & IsDraggable(x, y) THEN
       drag.on := TRUE;
       drag.unitX := x;
       drag.unitY := y;
       drag.innerX := (e.x - mapX) MOD cellW;
       drag.innerY := (e.y - mapY) MOD cellH;
-      drag.x1 := mapX + (x - 2) * cellW;
-      drag.x2 := drag.x1 + 5 * cellW;
-      drag.y1 := mapY + (y - 2) * cellH;
-      drag.y2 := drag.y1 + 5 * cellH;
+      r := 4; (* Максимальный радиус перемещения *)
+      drag.x1 := mapX + (x - r) * cellW;
+      drag.x2 := drag.x1 + (2 * r + 1) * cellW;
+      drag.y1 := mapY + (y - r) * cellH;
+      drag.y2 := drag.y1 + (2 * r + 1) * cellH;
       DragMove;
       G.SetMousePointer(hand, 6, 4)
     END
@@ -223,7 +309,7 @@ BEGIN
   needFlip := TRUE; quit := FALSE;
   drag.on := FALSE;
   REPEAT
-    G.WaitEvents(50);
+    IF anim.on THEN G.WaitEvents(10) ELSE G.WaitEvents(200) END;
     WHILE G.PollEvent(e) DO
       CASE e.type OF
         G.quit: quit := TRUE
